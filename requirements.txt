@@ -1,2 +1,2 @@
-pandas
+geopandas
 arcgis2geojson
