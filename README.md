@@ -6,4 +6,4 @@ downloads of the [sanitation pickups](https://streetsmartphl.phila.gov/) from St
 
 
 
-➡️ View the processed data [in the Flat GUI](https://flatgithub.com/PhiladelphiaController/data-sanitation-pickups/blob/main/data-processed.csv)
+➡️ View the processed data [in the Flat GUI](https://flatgithub.com/PhiladelphiaController/data-sanitation-pickups/blob/main/daily-data-combined.csv)
