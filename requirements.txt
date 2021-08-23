@@ -1,2 +1,4 @@
 geopandas
-arcgis2geojson
+esri2gpd
+scikit-learn
+loguru
