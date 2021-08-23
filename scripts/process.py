@@ -55,6 +55,20 @@ def load_street_centerlines():
     return gpd.read_file(DATA_DIR / "processed" / "street-centerlines.gpkg")
 
 
+def save_combined_database(gdf):
+
+    path = DATA_DIR / "processed" / "daily-data-combined.csv"
+    filename = Path(path)
+
+    # Merge together
+    if filename.exists():
+        gdf = pd.concat([gdf, pd.read_csv(filename)])
+
+    # Remove duplicates and save
+    gdf = gdf.drop_duplicates()
+    gdf.to_csv(filename, index=False)
+
+
 if __name__ == "__main__":
 
     # STEP 1: Get the latest data
@@ -124,8 +138,11 @@ if __name__ == "__main__":
     merged.loc[~matched, "segment_id"] = missing["segment_id"].values
 
     # STEP 5: Save the new streets to a GeoJSON file
-    merged[list(latest.columns) + ["segment_id"]].drop(
+    merged = merged[list(latest.columns) + ["segment_id"]].drop(
         labels=["geometry", "OBJECTID", "dist", "len_diff", "index_right"],
         axis=1,
         errors="ignore",
-    ).to_csv(DATA_DIR / "processed" / "daily-data-combined.csv", index=False)
+    )
+
+    # Save combined data
+    save_combined_database(merged)
