@@ -41,7 +41,10 @@ def query_latest_data():
     # Query the latest data for StreetSmart API
     ENDPOINT = "https://services.arcgis.com/fLeGjb7u4uXqeF9q/arcgis/rest/services/StreetSmartPHL/FeatureServer"
     LAYER = 8
-    gdf = esri2gpd.get(f"{ENDPOINT}/{LAYER}").to_crs(epsg=EPSG)
+    try:
+        gdf = esri2gpd.get(f"{ENDPOINT}/{LAYER}").to_crs(epsg=EPSG)
+    except:
+        return
 
     # Fix dates
     for col in ["recycling_time_visited", "rubbish_time_visited"]:
@@ -73,76 +76,78 @@ if __name__ == "__main__":
 
     # STEP 1: Get the latest data
     latest = query_latest_data()
-    latest.to_file(DATA_DIR / "raw" / "latest-data.geojson", driver="GeoJSON")
+    if latest is not None:
 
-    # STEP 2: Load the processed streets
-    streets = load_street_centerlines()
+        latest.to_file(DATA_DIR / "raw" / "latest-data.geojson", driver="GeoJSON")
 
-    streetsXY = _get_xy_from_geometry(streets)
-    latestXY = _get_xy_from_geometry(latest)
+        # STEP 2: Load the processed streets
+        streets = load_street_centerlines()
 
-    # STEP 1: Initialize the algorithm
-    nbrs = NearestNeighbors(n_neighbors=1)
+        streetsXY = _get_xy_from_geometry(streets)
+        latestXY = _get_xy_from_geometry(latest)
 
-    # STEP 2: Fit the algorithm on the "neighbors" dataset
-    nbrs.fit(streetsXY)
+        # STEP 1: Initialize the algorithm
+        nbrs = NearestNeighbors(n_neighbors=1)
 
-    # STEP 3: Get distances for sale to neighbors
-    dists, indices = nbrs.kneighbors(latestXY)
+        # STEP 2: Fit the algorithm on the "neighbors" dataset
+        nbrs.fit(streetsXY)
 
-    latest["index_right"] = indices.squeeze()
-    latest["dist"] = dists.squeeze()
+        # STEP 3: Get distances for sale to neighbors
+        dists, indices = nbrs.kneighbors(latestXY)
 
-    latest_lengths = latest.geometry.length.values
-    all_lengths = streets.loc[indices.squeeze()].geometry.length.values
-    latest["len_diff"] = latest_lengths - all_lengths
+        latest["index_right"] = indices.squeeze()
+        latest["dist"] = dists.squeeze()
 
-    merged = pd.merge(
-        latest,
-        streets.reset_index()[["index", "segment_id"]],
-        left_on="index_right",
-        right_on="index",
-        how="left",
-    )
-    assert len(merged) == len(latest)
+        latest_lengths = latest.geometry.length.values
+        all_lengths = streets.loc[indices.squeeze()].geometry.length.values
+        latest["len_diff"] = latest_lengths - all_lengths
 
-    DIST_CUTOFF = 10
-    LEN_CUTOFF = 10
-    matched = (merged["dist"].abs() < DIST_CUTOFF) & (
-        (merged["len_diff"].abs() < LEN_CUTOFF)
-    )
+        merged = pd.merge(
+            latest,
+            streets.reset_index()[["index", "segment_id"]],
+            left_on="index_right",
+            right_on="index",
+            how="left",
+        )
+        assert len(merged) == len(latest)
 
-    # Log the matched segments
-    num_matches = matched.sum()
-    f = num_matches / len(latest)
-    logger.info(f"Matched {num_matches} out of {len(latest)} ({100*f:.0f}%)")
+        DIST_CUTOFF = 10
+        LEN_CUTOFF = 10
+        matched = (merged["dist"].abs() < DIST_CUTOFF) & (
+            (merged["len_diff"].abs() < LEN_CUTOFF)
+        )
 
-    # Save the missing segments
-    missing = (
-        merged.loc[~matched]
-        .copy()[["geometry"]]
-        .reset_index()
-        .rename(columns={"index": "segment_id"})
-    )
-    missing["segment_id"] += streets["segment_id"].max() + 1
-    new_streets = pd.concat([streets, missing], axis=0, ignore_index=True)
+        # Log the matched segments
+        num_matches = matched.sum()
+        f = num_matches / len(latest)
+        logger.info(f"Matched {num_matches} out of {len(latest)} ({100*f:.0f}%)")
 
-    # STEP 4: Save the new streets
-    new_streets.to_file(
-        DATA_DIR / "processed" / "street-centerlines.gpkg",
-        driver="GPKG",
-        layer="data",
-    )
+        # Save the missing segments
+        missing = (
+            merged.loc[~matched]
+            .copy()[["geometry"]]
+            .reset_index()
+            .rename(columns={"index": "segment_id"})
+        )
+        missing["segment_id"] += streets["segment_id"].max() + 1
+        new_streets = pd.concat([streets, missing], axis=0, ignore_index=True)
 
-    # Set the segment id
-    merged.loc[~matched, "segment_id"] = missing["segment_id"].values
+        # STEP 4: Save the new streets
+        new_streets.to_file(
+            DATA_DIR / "processed" / "street-centerlines.gpkg",
+            driver="GPKG",
+            layer="data",
+        )
 
-    # STEP 5: Save the new streets to a GeoJSON file
-    merged = merged[list(latest.columns) + ["segment_id"]].drop(
-        labels=["geometry", "OBJECTID", "dist", "len_diff", "index_right"],
-        axis=1,
-        errors="ignore",
-    )
+        # Set the segment id
+        merged.loc[~matched, "segment_id"] = missing["segment_id"].values
 
-    # Save combined data
-    save_combined_database(merged)
+        # STEP 5: Save the new streets to a GeoJSON file
+        merged = merged[list(latest.columns) + ["segment_id"]].drop(
+            labels=["geometry", "OBJECTID", "dist", "len_diff", "index_right"],
+            axis=1,
+            errors="ignore",
+        )
+
+        # Save combined data
+        save_combined_database(merged)
